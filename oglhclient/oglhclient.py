@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Opengear Lighthouse API Client
 
@@ -9,10 +10,8 @@ import json, os, re, requests, yaml
 
 from collections import namedtuple
 from functools import partial
-from future.standard_library import install_aliases
 from urllib.parse import urlencode
 
-install_aliases()
 
 def ensure_auth(f):
     """
@@ -29,12 +28,13 @@ def ensure_auth(f):
 
     return wrapper
 
+
 class LighthouseApiClient:
     """
     The basic API client, with methods for GET, POST, PUT, and DELETE.
     """
 
-    def __init__(self, url="", username="", password=""):
+    def __init__(self, url="", username="", password="", version="3.4"):
         self.url = url if url else os.environ.get('OGLH_API_URL')
         self.username = username if username else os.environ.get('OGLH_API_USER')
         self.password = password if password else os.environ.get('OGLH_API_PASS')
@@ -45,23 +45,31 @@ class LighthouseApiClient:
     to the documentation at https://github.com/opengear/oglhclient""")
 
         requests.packages.urllib3.disable_warnings()
-        self.api_url = self.url + '/api/v3.4'
+        self.api_url = self.url + f"/api/v{version}"
         self.token = None
         self.pending_name_ids = {}
         self.s = requests.Session()
+        self.version = version
 
         try:
-            ramlfile = os.path.join(os.path.dirname(__file__),
-                'og-rest-api-specification-v3-4.raml')
+            ramlfile = os.path.join(
+                os.path.dirname(__file__),
+                f"og-rest-api-specification-v{self.version.replace('.', '-')}.raml"
+            )
             with open(ramlfile, 'r') as stream:
-                self.raml = yaml.load(re.sub('\t','  ',re.sub('\\\/','/',re.sub(':\"',': \"',stream.read()))),
-                    Loader=yaml.FullLoader)
+                self.raml = yaml.load(
+                    re.sub(r'\t', '  ', re.sub(r'\\\/', '/', re.sub(r':\"', ': \"', stream.read()))),
+                    Loader=yaml.FullLoader
+                )
         except Exception as e:
             print(e)
             print("Trying remote file...")
-            r = self.s.get('http://ftp.opengear.com/download/api/lighthouse/og-rest-api-specification-v3-4.raml')
-            self.raml = yaml.load(re.sub('\t','  ',re.sub('\\\/','/',re.sub(':\"',': \"',r.text))),
-                Loader=yaml.FullLoader)
+            lighthouse_url = "http://ftp.opengear.com/download/api/lighthouse"
+            r = self.s.get(f"{lighthouse_url}/og-rest-api-specification-v{self.version.replace('.', '-')}.raml")
+            self.raml = yaml.load(
+                re.sub(r'\t', '  ', re.sub(r'\\\/', '/', re.sub(r':\"', ': \"', r.text))),
+                Loader=yaml.FullLoader
+            )
 
         if not isinstance(self.raml, dict):
             raise RuntimeError("""
@@ -80,7 +88,8 @@ class LighthouseApiClient:
             if elem not in raml:
                 raml[elem] = {}
             raml[elem].update(
-                self._update_raml_nodes(raml[elem], '/' + path_parts[0] , path_parts[1:], node))
+                self._update_raml_nodes(raml[elem], '/' + path_parts[0], path_parts[1:], node)
+            )
         return raml
 
     def _fix_raml(self, raml):
@@ -95,7 +104,7 @@ class LighthouseApiClient:
 
         It is helpful for parsing the RAML file.
         """
-        top_paths = [p for p in raml.keys() if re.match('^\/', p)]
+        top_paths = [p for p in raml.keys() if re.match(r'^\/', p)]
         for p in top_paths:
             path_parts = p.split('/')
             if len(path_parts) >= 3 and ('/' + path_parts[1]) in top_paths:
@@ -106,13 +115,13 @@ class LighthouseApiClient:
         return raml
 
     def _headers(self):
-        headers = { 'Content-type' : 'application/json' }
+        headers = {'Content-type': 'application/json'}
         if self.token:
-            headers.update({ 'Authorization' : 'Token ' + self.token })
+            headers.update({'Authorization': 'Token ' + self.token})
         return headers
 
     def _do_auth(self):
-        data = { 'username' : self.username, 'password' : self.password }
+        data = {'username': self.username, 'password': self.password}
         body = self.post('/sessions', data=data)
 
         if 'error' in body._asdict():
@@ -129,9 +138,10 @@ class LighthouseApiClient:
 
     def _parse_response(self, response):
         try:
-            #return json.loads(response.text)
-            return json.loads(response.text,
-                object_hook=lambda d: namedtuple('X', d.keys())(*d.values()))
+            # return json.loads(response.text)
+            return json.loads(
+                response.text, object_hook=lambda d: namedtuple('X', d.keys())(*d.values())
+            )
         except ValueError:
             return response.text
 
@@ -142,8 +152,10 @@ class LighthouseApiClient:
         for a in args:
             if type(a) is dict:
                 kwargs.update(a)
-        params = urlencode({ k: v for k,v in kwargs.items()
-            if not re.match('.*\{' + k + '\}', path) })
+        params = urlencode({
+            k: v for k, v in kwargs.items()
+                if not re.match(r'.*\{' + k + r'\}', path)
+        })
         return self._get_url(path, **kwargs), params
 
     def _apply_ids(self, path, **kwargs):
